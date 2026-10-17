@@ -1,0 +1,18 @@
+name: ARM determinism build
+
+on:
+  push:
+    branches: [arm-base, arm-invsqrt-fix]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-toolchain.yml
+    with:
+      game: GeneralsMD
+      preset: win32-vcpkg
+      tools: false
