@@ -40,6 +40,7 @@
 #include <math.h>
 #include <float.h>
 #include <assert.h>
+#include <string.h>
 
 /*
 ** Some global constants.
@@ -610,7 +611,51 @@ WWINLINE int WWMath::Float_To_Int_Floor (const float& f)
 // Inverse square root
 // ----------------------------------------------------------------------------
 
-#if defined(_MSC_VER) && defined(_M_IX86)
+#if defined(_MSC_VER) && defined(_M_IX86) && defined(_M_IX86_FP) && _M_IX86_FP >= 2
+// The original x87 routine below relies on the x87 precision control being set to
+// 24 bits by setFPMode(). x86 emulators on ARM64 (Windows Prism, used by Parallels on
+// Apple Silicon) ignore the x87 precision control, so the x87 routine returns slightly
+// different values there, which desyncs the simulation against real x86 CPUs.
+//
+// This is the exact same operation sequence, done with SSE2 doubles: every step is
+// computed exactly in double and then rounded to a 24 bit mantissa while keeping the
+// exponent, which is what the x87 does with precision control at 24 bits. It returns
+// bit-identical results to the x87 routine on real x86 CPUs for all 2^32 inputs, and
+// the same results under emulation.
+
+WWINLINE double WWMath_Inv_Sqrt_Round24(double v)
+{
+	unsigned __int64 u;
+	memcpy(&u, &v, sizeof(u));
+	u += 0x0FFFFFFFull + ((u >> 29) & 1); // round to nearest even at 24 mantissa bits
+	u &= ~0x1FFFFFFFull;
+	memcpy(&v, &u, sizeof(v));
+	return v;
+}
+
+WWINLINE float WWMath::Inv_Sqrt(float a)
+{
+	unsigned int ab;
+	memcpy(&ab, &a, sizeof(ab));
+	unsigned int rb = (0xbe6eb508u - ab) >> 1;	// first approximation R0
+	unsigned int yb = ab - 0x800000u;			// a/2 = Y0
+	float rf, y0f;
+	memcpy(&rf, &rb, sizeof(rf));
+	memcpy(&y0f, &yb, sizeof(y0f));
+
+	const double r = rf;
+	const double y0 = y0f;
+	const double y1 = WWMath_Inv_Sqrt_Round24(WWMath_Inv_Sqrt_Round24(r * r) * y0);
+	const double r1 = WWMath_Inv_Sqrt_Round24(1.5 - y1);
+	const double y2 = WWMath_Inv_Sqrt_Round24(WWMath_Inv_Sqrt_Round24(y1 * r1) * r1);
+	const double x2 = WWMath_Inv_Sqrt_Round24(r * r1);
+	const double r2 = WWMath_Inv_Sqrt_Round24(1.5 - y2);
+	const double x3 = WWMath_Inv_Sqrt_Round24(x2 * r2);
+	const double y3 = WWMath_Inv_Sqrt_Round24(WWMath_Inv_Sqrt_Round24(y2 * r2) * r2);
+	const double r3 = WWMath_Inv_Sqrt_Round24(1.5 - y3);
+	return (float)WWMath_Inv_Sqrt_Round24(x3 * r3);
+}
+#elif defined(_MSC_VER) && defined(_M_IX86)
 WWINLINE float WWMath::Inv_Sqrt(float a)
 {
 	float retval;
